@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shoplist_db
+    environment:
+      POSTGRES_USER: shoplist_user
+      POSTGRES_PASSWORD: shoplist_password
+      POSTGRES_DB: shoplist_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - shoplist_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shoplist_user -d shoplist_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: shoplist_backend
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: shoplist_user
+      DB_PASSWORD: shoplist_password
+      DB_NAME: shoplist_db
+      JWT_SECRET: your-secret-key-change-in-production
+      PORT: 5001
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - shoplist_network
+    command: npm run dev
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').request({hostname:'127.0.0.1',port:5001,path:'/api/auth/login',method:'POST'}, (r) => {process.exit(r.statusCode === 400 || r.statusCode === 401 ? 0 : 1)}).on('error', () => process.exit(1)).end()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shoplist_frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:5001/api
+      CHOKIDAR_USEPOLLING: true
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - shoplist_network
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:
+
+networks:
+  shoplist_network:
+    driver: bridge
+
