@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { body, validationResult } = require('express-validator');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -152,6 +153,115 @@ router.post('/', [
   }
 });
 
+// Add ingredient to shopping list
+router.post('/:id/items', [
+  body('ingredientId').optional().isInt(),
+  body('name').optional().notEmpty().trim(),
+  body('unit').optional().notEmpty().trim(),
+  body('amount').isFloat({ min: 0 })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { ingredientId, name, unit, amount } = req.body;
+
+    // Verify list belongs to user
+    const listCheck = await pool.query(
+      'SELECT id, user_id FROM shopping_lists WHERE id = $1 AND user_id = $2',
+      [id, req.userId]
+    );
+
+    if (listCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    const list = listCheck.rows[0];
+    let finalIngredientId = ingredientId;
+
+    // If no ingredientId provided, create or find ingredient
+    if (!finalIngredientId) {
+      if (!name || !unit) {
+        return res.status(400).json({ error: 'Either ingredientId or both name and unit are required' });
+      }
+
+      // Check if ingredient exists for this user
+      const existingIngredient = await pool.query(
+        'SELECT id FROM ingredients WHERE name = $1 AND user_id = $2',
+        [name, list.user_id]
+      );
+
+      if (existingIngredient.rows.length > 0) {
+        finalIngredientId = existingIngredient.rows[0].id;
+      } else {
+        // Create new ingredient for the list owner
+        const newIngredient = await pool.query(
+          'INSERT INTO ingredients (name, unit, user_id) VALUES ($1, $2, $3) RETURNING id',
+          [name, unit, list.user_id]
+        );
+        finalIngredientId = newIngredient.rows[0].id;
+      }
+    }
+
+    // Check if item already exists in the list
+    const existingItem = await pool.query(
+      'SELECT id, amount FROM shopping_list_items WHERE shopping_list_id = $1 AND ingredient_id = $2',
+      [id, finalIngredientId]
+    );
+
+    let result;
+    if (existingItem.rows.length > 0) {
+      // Update existing item by adding to the amount
+      const newAmount = parseFloat(existingItem.rows[0].amount) + parseFloat(amount);
+      result = await pool.query(
+        `UPDATE shopping_list_items
+         SET amount = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING *`,
+        [newAmount, existingItem.rows[0].id]
+      );
+    } else {
+      // Create new item
+      result = await pool.query(
+        'INSERT INTO shopping_list_items (shopping_list_id, ingredient_id, amount) VALUES ($1, $2, $3) RETURNING *',
+        [id, finalIngredientId, amount]
+      );
+    }
+
+    // Fetch the complete item with ingredient details
+    const itemResult = await pool.query(
+      `SELECT sli.id, sli.amount, sli.checked, i.id as ingredient_id, i.name, i.unit
+       FROM shopping_list_items sli
+       JOIN ingredients i ON sli.ingredient_id = i.id
+       WHERE sli.id = $1`,
+      [result.rows[0].id]
+    );
+
+    const newItem = itemResult.rows[0];
+
+    // Emit real-time update
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${req.userId}`).emit('shopping_list_item_added', {
+        listId: parseInt(id),
+        item: newItem
+      });
+      io.to(`list_${id}`).emit('shopping_list_item_added', {
+        listId: parseInt(id),
+        item: newItem
+      });
+    }
+
+    res.status(201).json(newItem);
+  } catch (error) {
+    console.error('Error adding item to shopping list:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Update shopping list item (check/uncheck)
 router.patch('/:id/items/:itemId', [
   body('checked').isBoolean()
@@ -191,18 +301,72 @@ router.patch('/:id/items/:itemId', [
     // Emit real-time update to all users viewing this shopping list
     const io = req.app.get('io');
     if (io) {
-      // Broadcast to all users in the user's room (for same user on multiple devices)
-      // In a production app, you might want to track which users are viewing which lists
-      io.to(`user_${req.userId}`).emit('shopping_list_updated', {
+      const updateData = {
         listId: parseInt(id),
         itemId: parseInt(itemId),
         checked: checked
-      });
+      };
+      // Broadcast to both user's room and list's room (for shared access)
+      io.to(`user_${req.userId}`).emit('shopping_list_updated', updateData);
+      io.to(`list_${id}`).emit('shopping_list_updated', updateData);
     }
 
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating shopping list item:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Generate or regenerate share token for shopping list
+router.post('/:id/share', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify list belongs to user
+    const listCheck = await pool.query(
+      'SELECT id FROM shopping_lists WHERE id = $1 AND user_id = $2',
+      [id, req.userId]
+    );
+
+    if (listCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    // Generate a secure random token
+    const shareToken = crypto.randomBytes(32).toString('hex');
+
+    // Update shopping list with share token
+    const result = await pool.query(
+      'UPDATE shopping_lists SET share_token = $1 WHERE id = $2 RETURNING share_token',
+      [shareToken, id]
+    );
+
+    res.json({ shareToken: result.rows[0].share_token });
+  } catch (error) {
+    console.error('Error generating share token:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get share token for shopping list (if exists)
+router.get('/:id/share', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify list belongs to user
+    const listCheck = await pool.query(
+      'SELECT share_token FROM shopping_lists WHERE id = $1 AND user_id = $2',
+      [id, req.userId]
+    );
+
+    if (listCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    res.json({ shareToken: listCheck.rows[0].share_token || null });
+  } catch (error) {
+    console.error('Error fetching share token:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
