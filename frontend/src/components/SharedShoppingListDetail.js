@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import io from 'socket.io-client';
 import '../index.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
@@ -10,10 +11,66 @@ const SharedShoppingListDetail = () => {
   const [list, setList] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const socketRef = useRef(null);
+  const listIdRef = useRef(null);
 
   useEffect(() => {
     fetchList();
+
+    // Setup WebSocket connection for real-time updates (only once per token)
+    // Socket.io needs the base server URL, not the API path
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+    const socketUrl = apiUrl.replace('/api', '') || 'http://localhost:5001';
+    
+    const socket = io(socketUrl, {
+      auth: { shareToken: token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      timeout: 20000,
+    });
+
+    socketRef.current = socket;
+
+    socket.on('shopping_list_updated', (data) => {
+      if (listIdRef.current && data.listId === listIdRef.current) {
+        // Update the specific item
+        setList((prevList) => {
+          if (!prevList) return prevList;
+          return {
+            ...prevList,
+            items: prevList.items.map((item) =>
+              item.id === data.itemId
+                ? { ...item, checked: data.checked }
+                : item
+            ),
+          };
+        });
+      }
+    });
+
+    socket.on('connect_error', (error) => {
+      // Try to reconnect after a delay
+      setTimeout(() => {
+        if (socket.disconnected) {
+          socket.connect();
+        }
+      }, 2000);
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
   }, [token]);
+
+  // Update listIdRef when list changes
+  useEffect(() => {
+    if (list && list.id) {
+      listIdRef.current = list.id;
+    }
+  }, [list]);
 
   const fetchList = async () => {
     try {
@@ -38,7 +95,7 @@ const SharedShoppingListDetail = () => {
         ),
       }));
 
-      // Update on server
+      // Update on server (WebSocket will handle the broadcast)
       await axios.patch(`${API_URL}/shared/shopping-lists/${token}/items/${itemId}`, {
         checked: !checked,
       });

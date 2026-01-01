@@ -192,17 +192,14 @@ router.patch('/:id/items/:itemId', [
     // Emit real-time update to all users viewing this shopping list
     const io = req.app.get('io');
     if (io) {
+      const updateData = {
+        listId: parseInt(id),
+        itemId: parseInt(itemId),
+        checked: checked
+      };
       // Broadcast to both user's room and list's room (for shared access)
-      io.to(`user_${req.userId}`).emit('shopping_list_updated', {
-        listId: parseInt(id),
-        itemId: parseInt(itemId),
-        checked: checked
-      });
-      io.to(`list_${id}`).emit('shopping_list_updated', {
-        listId: parseInt(id),
-        itemId: parseInt(itemId),
-        checked: checked
-      });
+      io.to(`user_${req.userId}`).emit('shopping_list_updated', updateData);
+      io.to(`list_${id}`).emit('shopping_list_updated', updateData);
     }
 
     res.json(result.rows[0]);

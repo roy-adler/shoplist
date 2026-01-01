@@ -20,8 +20,10 @@ const ShoppingListDetail = () => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-    const socket = io(apiUrl, {
+    // Socket.io needs the base server URL, not the API path
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+    const socketUrl = apiUrl.replace('/api', '') || 'http://localhost:5001';
+    const socket = io(socketUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
