@@ -11,10 +11,19 @@ const ShoppingListDetail = () => {
   const [shareToken, setShareToken] = useState(null);
   const [shareLink, setShareLink] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [ingredients, setIngredients] = useState([]);
+  const [addFormData, setAddFormData] = useState({
+    ingredientId: '',
+    name: '',
+    unit: '',
+    amount: 1
+  });
 
   useEffect(() => {
     fetchList();
     fetchShareToken();
+    fetchIngredients();
 
     // Setup WebSocket connection for real-time updates
     const token = localStorage.getItem('token');
@@ -51,6 +60,27 @@ const ShoppingListDetail = () => {
       }
     });
 
+    socket.on('shopping_list_item_added', (data) => {
+      if (data.listId === parseInt(id)) {
+        // Add the new item to the list
+        setList((prevList) => {
+          if (!prevList) return prevList;
+          // Check if item already exists (might have been added optimistically)
+          const exists = prevList.items.some(item => item.id === data.item.id);
+          if (exists) {
+            return prevList;
+          }
+          return {
+            ...prevList,
+            items: [...prevList.items, data.item].sort((a, b) => {
+              if (a.checked !== b.checked) return a.checked ? 1 : -1;
+              return a.name.localeCompare(b.name);
+            })
+          };
+        });
+      }
+    });
+
     socket.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
     });
@@ -79,7 +109,15 @@ const ShoppingListDetail = () => {
       }
     } catch (err) {
       // Share token might not exist yet, that's okay
-      console.log('No share token found');
+    }
+  };
+
+  const fetchIngredients = async () => {
+    try {
+      const response = await api.get('/ingredients');
+      setIngredients(response.data);
+    } catch (err) {
+      // Ingredients might not be available, that's okay
     }
   };
 
@@ -101,6 +139,77 @@ const ShoppingListDetail = () => {
     navigator.clipboard.writeText(shareLink).then(() => {
       alert('Share link copied to clipboard!');
     });
+  };
+
+  const handleAddItem = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!addFormData.ingredientId && (!addFormData.name || !addFormData.unit)) {
+      setError('Please select an ingredient or provide name and unit');
+      return;
+    }
+
+    try {
+      await api.post(`/shopping-lists/${id}/items`, {
+        ingredientId: addFormData.ingredientId || null,
+        name: addFormData.name || null,
+        unit: addFormData.unit || null,
+        amount: parseFloat(addFormData.amount)
+      });
+      
+      // Optimistically add to list (socket will handle the real update)
+      if (addFormData.ingredientId) {
+        const ingredient = ingredients.find(ing => ing.id === parseInt(addFormData.ingredientId));
+        if (ingredient) {
+          setList((prevList) => {
+            if (!prevList) return prevList;
+            const newItem = {
+              id: Date.now(), // Temporary ID
+              ingredient_id: ingredient.id,
+              name: ingredient.name,
+              unit: ingredient.unit,
+              amount: parseFloat(addFormData.amount),
+              checked: false
+            };
+            return {
+              ...prevList,
+              items: [...prevList.items, newItem].sort((a, b) => {
+                if (a.checked !== b.checked) return a.checked ? 1 : -1;
+                return a.name.localeCompare(b.name);
+              })
+            };
+          });
+        }
+      }
+      
+      setShowAddForm(false);
+      setAddFormData({ ingredientId: '', name: '', unit: '', amount: 1 });
+      fetchList(); // Refresh to get the real item with correct ID
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to add item');
+    }
+  };
+
+  const handleIngredientSelect = (ingredientId) => {
+    if (ingredientId) {
+      const ingredient = ingredients.find(ing => ing.id === parseInt(ingredientId));
+      if (ingredient) {
+        setAddFormData({
+          ...addFormData,
+          ingredientId: ingredientId,
+          name: ingredient.name,
+          unit: ingredient.unit
+        });
+      }
+    } else {
+      setAddFormData({
+        ...addFormData,
+        ingredientId: '',
+        name: '',
+        unit: ''
+      });
+    }
   };
 
   const handleToggleItem = async (itemId, checked) => {
@@ -184,6 +293,88 @@ const ShoppingListDetail = () => {
             </div>
           </div>
         )}
+
+        <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+          {!showAddForm ? (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowAddForm(true)}
+            >
+              + Add Item
+            </button>
+          ) : (
+            <div className="card" style={{ backgroundColor: '#f5f5f5' }}>
+              <h3>Add Item to Shopping List</h3>
+              <form onSubmit={handleAddItem}>
+                <div className="form-group">
+                  <label>Select Existing Ingredient (optional)</label>
+                  <select
+                    value={addFormData.ingredientId}
+                    onChange={(e) => handleIngredientSelect(e.target.value)}
+                  >
+                    <option value="">-- Create New Ingredient --</option>
+                    {ingredients.map((ingredient) => (
+                      <option key={ingredient.id} value={ingredient.id}>
+                        {ingredient.name} ({ingredient.unit})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {!addFormData.ingredientId && (
+                  <>
+                    <div className="form-group">
+                      <label>Ingredient Name</label>
+                      <input
+                        type="text"
+                        value={addFormData.name}
+                        onChange={(e) => setAddFormData({ ...addFormData, name: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Unit</label>
+                      <input
+                        type="text"
+                        value={addFormData.unit}
+                        onChange={(e) => setAddFormData({ ...addFormData, unit: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="form-group">
+                  <label>Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={addFormData.amount}
+                    onChange={(e) => setAddFormData({ ...addFormData, amount: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <button type="submit" className="btn btn-primary">
+                  Add Item
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setAddFormData({ ingredientId: '', name: '', unit: '', amount: 1 });
+                    setError('');
+                  }}
+                  style={{ marginLeft: '10px' }}
+                >
+                  Cancel
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
 
         <div>
           {list.items.length === 0 ? (

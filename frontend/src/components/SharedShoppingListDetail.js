@@ -13,6 +13,12 @@ const SharedShoppingListDetail = () => {
   const [loading, setLoading] = useState(true);
   const socketRef = useRef(null);
   const listIdRef = useRef(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addFormData, setAddFormData] = useState({
+    name: '',
+    unit: '',
+    amount: 1
+  });
 
   useEffect(() => {
     fetchList();
@@ -45,6 +51,27 @@ const SharedShoppingListDetail = () => {
                 ? { ...item, checked: data.checked }
                 : item
             ),
+          };
+        });
+      }
+    });
+
+    socket.on('shopping_list_item_added', (data) => {
+      if (listIdRef.current && data.listId === listIdRef.current) {
+        // Add the new item to the list
+        setList((prevList) => {
+          if (!prevList) return prevList;
+          // Check if item already exists (might have been added optimistically)
+          const exists = prevList.items.some(item => item.id === data.item.id);
+          if (exists) {
+            return prevList;
+          }
+          return {
+            ...prevList,
+            items: [...prevList.items, data.item].sort((a, b) => {
+              if (a.checked !== b.checked) return a.checked ? 1 : -1;
+              return a.name.localeCompare(b.name);
+            })
           };
         });
       }
@@ -106,6 +133,52 @@ const SharedShoppingListDetail = () => {
     }
   };
 
+  const handleAddItem = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!addFormData.name || !addFormData.unit) {
+      setError('Please provide name and unit');
+      return;
+    }
+
+    try {
+      // Optimistically add to list
+      const tempItem = {
+        id: Date.now(),
+        name: addFormData.name,
+        unit: addFormData.unit,
+        amount: parseFloat(addFormData.amount),
+        checked: false
+      };
+      setList((prevList) => {
+        if (!prevList) return prevList;
+        return {
+          ...prevList,
+          items: [...prevList.items, tempItem].sort((a, b) => {
+            if (a.checked !== b.checked) return a.checked ? 1 : -1;
+            return a.name.localeCompare(b.name);
+          })
+        };
+      });
+
+      await axios.post(`${API_URL}/shared/shopping-lists/${token}/items`, {
+        name: addFormData.name,
+        unit: addFormData.unit,
+        amount: parseFloat(addFormData.amount)
+      });
+      
+      setShowAddForm(false);
+      setAddFormData({ name: '', unit: '', amount: 1 });
+      // Refresh to get the real item with correct ID
+      fetchList();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to add item');
+      // Revert optimistic update
+      fetchList();
+    }
+  };
+
   if (loading) {
     return (
       <div className="container">
@@ -152,6 +225,68 @@ const SharedShoppingListDetail = () => {
         </div>
 
         {error && <div className="alert alert-error">{error}</div>}
+
+        <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+          {!showAddForm ? (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowAddForm(true)}
+            >
+              + Add Item
+            </button>
+          ) : (
+            <div className="card" style={{ backgroundColor: '#f5f5f5' }}>
+              <h3>Add Item to Shopping List</h3>
+              <form onSubmit={handleAddItem}>
+                <div className="form-group">
+                  <label>Ingredient Name</label>
+                  <input
+                    type="text"
+                    value={addFormData.name}
+                    onChange={(e) => setAddFormData({ ...addFormData, name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Unit</label>
+                  <input
+                    type="text"
+                    value={addFormData.unit}
+                    onChange={(e) => setAddFormData({ ...addFormData, unit: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={addFormData.amount}
+                    onChange={(e) => setAddFormData({ ...addFormData, amount: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <button type="submit" className="btn btn-primary">
+                  Add Item
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setAddFormData({ name: '', unit: '', amount: 1 });
+                    setError('');
+                  }}
+                  style={{ marginLeft: '10px' }}
+                >
+                  Cancel
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
 
         <div>
           {list.items.length === 0 ? (
