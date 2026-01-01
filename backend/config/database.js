@@ -71,6 +71,7 @@ const init = async () => {
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        share_token VARCHAR(255) UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -89,11 +90,26 @@ const init = async () => {
       )
     `);
 
+    // Add share_token column if it doesn't exist (for existing databases)
+    // This must happen before creating indexes
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'shopping_lists' AND column_name = 'share_token'
+        ) THEN
+          ALTER TABLE shopping_lists ADD COLUMN share_token VARCHAR(255) UNIQUE;
+        END IF;
+      END $$;
+    `);
+
     // Create indexes
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_recipes_user_id ON recipes(user_id);
       CREATE INDEX IF NOT EXISTS idx_ingredients_user_id ON ingredients(user_id);
       CREATE INDEX IF NOT EXISTS idx_shopping_lists_user_id ON shopping_lists(user_id);
+      CREATE INDEX IF NOT EXISTS idx_shopping_lists_share_token ON shopping_lists(share_token);
       CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe_id ON recipe_ingredients(recipe_id);
       CREATE INDEX IF NOT EXISTS idx_shopping_list_items_list_id ON shopping_list_items(shopping_list_id);
     `);

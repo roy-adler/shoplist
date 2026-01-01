@@ -8,6 +8,7 @@ import RecipeForm from './components/RecipeForm';
 import Ingredients from './components/Ingredients';
 import ShoppingLists from './components/ShoppingLists';
 import ShoppingListDetail from './components/ShoppingListDetail';
+import SharedShoppingListDetail from './components/SharedShoppingListDetail';
 import Navbar from './components/Navbar';
 import './App.css';
 
@@ -80,6 +81,10 @@ function App() {
           <Route
             path="/shopping-lists/:id"
             element={token ? <ShoppingListDetail /> : <Navigate to="/login" />}
+          />
+          <Route
+            path="/shared/shopping-lists/:token"
+            element={<SharedShoppingListDetail />}
           />
           <Route
             path="/"

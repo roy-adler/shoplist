@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const recipeRoutes = require('./routes/recipes');
 const ingredientRoutes = require('./routes/ingredients');
 const shoppingListRoutes = require('./routes/shoppingLists');
+const sharedShoppingListRoutes = require('./routes/sharedShoppingLists');
 const { authenticateToken } = require('./middleware/auth');
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/recipes', authenticateToken, recipeRoutes);
 app.use('/api/ingredients', authenticateToken, ingredientRoutes);
 app.use('/api/shopping-lists', authenticateToken, shoppingListRoutes);
+app.use('/api/shared/shopping-lists', sharedShoppingListRoutes);
 
 // Socket.io for real-time updates
 io.use((socket, next) => {
@@ -56,6 +58,12 @@ io.on('connection', (socket) => {
   
   // Join user's room for shopping list updates
   socket.join(`user_${socket.userId}`);
+  
+  // Handle joining a specific list room for real-time updates
+  socket.on('join_list', (listId) => {
+    socket.join(`list_${listId}`);
+    console.log(`User ${socket.userId} joined list room ${listId}`);
+  });
   
   socket.on('disconnect', () => {
     console.log(`User ${socket.userId} disconnected`);

@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { body, validationResult } = require('express-validator');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -191,9 +192,13 @@ router.patch('/:id/items/:itemId', [
     // Emit real-time update to all users viewing this shopping list
     const io = req.app.get('io');
     if (io) {
-      // Broadcast to all users in the user's room (for same user on multiple devices)
-      // In a production app, you might want to track which users are viewing which lists
+      // Broadcast to both user's room and list's room (for shared access)
       io.to(`user_${req.userId}`).emit('shopping_list_updated', {
+        listId: parseInt(id),
+        itemId: parseInt(itemId),
+        checked: checked
+      });
+      io.to(`list_${id}`).emit('shopping_list_updated', {
         listId: parseInt(id),
         itemId: parseInt(itemId),
         checked: checked
@@ -203,6 +208,59 @@ router.patch('/:id/items/:itemId', [
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating shopping list item:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Generate or regenerate share token for shopping list
+router.post('/:id/share', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify list belongs to user
+    const listCheck = await pool.query(
+      'SELECT id FROM shopping_lists WHERE id = $1 AND user_id = $2',
+      [id, req.userId]
+    );
+
+    if (listCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    // Generate a secure random token
+    const shareToken = crypto.randomBytes(32).toString('hex');
+
+    // Update shopping list with share token
+    const result = await pool.query(
+      'UPDATE shopping_lists SET share_token = $1 WHERE id = $2 RETURNING share_token',
+      [shareToken, id]
+    );
+
+    res.json({ shareToken: result.rows[0].share_token });
+  } catch (error) {
+    console.error('Error generating share token:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get share token for shopping list (if exists)
+router.get('/:id/share', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify list belongs to user
+    const listCheck = await pool.query(
+      'SELECT share_token FROM shopping_lists WHERE id = $1 AND user_id = $2',
+      [id, req.userId]
+    );
+
+    if (listCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Shopping list not found' });
+    }
+
+    res.json({ shareToken: listCheck.rows[0].share_token || null });
+  } catch (error) {
+    console.error('Error fetching share token:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
