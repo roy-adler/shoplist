@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -47,16 +47,31 @@ function App() {
 
   return (
     <Router>
-      <div className="App">
-        {token && <Navbar user={user} onLogout={handleLogout} />}
-        <Routes>
+      <AppContent 
+        token={token} 
+        user={user} 
+        onLogout={handleLogout}
+        onLogin={handleLogin}
+      />
+    </Router>
+  );
+}
+
+function AppContent({ token, user, onLogout, onLogin }) {
+  const location = useLocation();
+  const isSharedRoute = location.pathname.startsWith('/shared/');
+
+  return (
+    <div className="App">
+      {token && !isSharedRoute && <Navbar user={user} onLogout={onLogout} />}
+      <Routes>
           <Route
             path="/login"
-            element={token ? <Navigate to="/recipes" /> : <Login onLogin={handleLogin} />}
+            element={token ? <Navigate to="/recipes" /> : <Login onLogin={onLogin} />}
           />
           <Route
             path="/register"
-            element={token ? <Navigate to="/recipes" /> : <Register onLogin={handleLogin} />}
+            element={token ? <Navigate to="/recipes" /> : <Register onLogin={onLogin} />}
           />
           <Route
             path="/recipes"
@@ -92,7 +107,6 @@ function App() {
           />
         </Routes>
       </div>
-    </Router>
   );
 }
 

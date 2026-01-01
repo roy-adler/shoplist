@@ -83,16 +83,13 @@ const SharedShoppingListDetail = () => {
   const totalCount = list.items.length;
 
   return (
-    <div className="container">
+    <div className="container" style={{ paddingTop: '40px' }}>
       <div className="card">
         <div className="card-header">
           <div>
             <h2 className="card-title">{list.name}</h2>
             <p style={{ color: '#666', fontSize: '14px', marginTop: '5px' }}>
               {checkedCount} / {totalCount} items checked
-            </p>
-            <p style={{ color: '#999', fontSize: '12px', marginTop: '5px' }}>
-              Shared shopping list - No login required
             </p>
           </div>
         </div>
