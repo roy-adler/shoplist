@@ -1,0 +1,69 @@
+# Production docker-compose using pre-built combined image from GitHub Container Registry
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+#
+# Before using, make sure to:
+# 1. Set GITHUB_USERNAME to your GitHub username
+# 2. Set GITHUB_REPO to your repository name (e.g., username/shoplist)
+# 3. Login to GitHub Container Registry: echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+#    Or use: docker login ghcr.io -u USERNAME
+#
+# To use a specific version, replace 'latest' with a tag like 'main-abc123' or 'v1.0.0'
+#
+# This setup uses a single combined image containing both frontend and backend.
+# The image runs nginx (serving frontend) and Node.js (backend) in the same container.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shoplist_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shoplist_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shoplist_password}
+      POSTGRES_DB: ${POSTGRES_DB:-shoplist_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - shoplist_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shoplist_user} -d ${POSTGRES_DB:-shoplist_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    image: ghcr.io/${GITHUB_USERNAME:-your-username}/${GITHUB_REPO:-shoplist}:${IMAGE_TAG:-latest}
+    container_name: shoplist_app
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-shoplist_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-shoplist_password}
+      DB_NAME: ${POSTGRES_DB:-shoplist_db}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      PORT: 5001
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - shoplist_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/auth/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  shoplist_network:
+    driver: bridge
