@@ -42,52 +42,55 @@ COPY backend/ ./backend/
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
 # Create nginx configuration
-RUN echo 'server { \
-    listen 80; \
-    server_name _; \
-    root /app/frontend/build; \
-    index index.html; \
-    \
-    # Proxy API requests to backend running on localhost:5001 \
-    location /api { \
-        proxy_pass http://localhost:5001; \
-        proxy_http_version 1.1; \
-        proxy_set_header Upgrade $http_upgrade; \
-        proxy_set_header Connection "upgrade"; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
-        proxy_set_header X-Forwarded-Proto $scheme; \
-    } \
-    \
-    # Serve static files and handle React Router \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/http.d/default.conf
+RUN cat > /etc/nginx/http.d/default.conf << 'EOF'
+server {
+    listen 80;
+    server_name _;
+    root /app/frontend/build;
+    index index.html;
+
+    # Proxy API requests to backend running on localhost:5001
+    location /api {
+        proxy_pass http://localhost:5001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Serve static files and handle React Router
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+EOF
 
 # Create supervisor configuration to run both nginx and node
-RUN echo '[supervisord] \
-nodaemon=true \
-user=root \
-\
-[program:nginx] \
-command=nginx -g "daemon off;" \
-autostart=true \
-autorestart=true \
-stderr_logfile=/var/log/supervisor/nginx.err.log \
-stdout_logfile=/var/log/supervisor/nginx.out.log \
-\
-[program:backend] \
-command=node /app/backend/server.js \
-directory=/app/backend \
-user=nodejs \
-autostart=true \
-autorestart=true \
-stderr_logfile=/var/log/supervisor/backend.err.log \
-stdout_logfile=/var/log/supervisor/backend.out.log \
-environment=NODE_ENV="production",PORT="5001" \
-' > /etc/supervisor/conf.d/supervisord.conf
+RUN cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
+[supervisord]
+nodaemon=true
+user=root
+
+[program:nginx]
+command=nginx -g "daemon off;"
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/supervisor/nginx.err.log
+stdout_logfile=/var/log/supervisor/nginx.out.log
+
+[program:backend]
+command=node /app/backend/server.js
+directory=/app/backend
+user=nodejs
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/supervisor/backend.err.log
+stdout_logfile=/var/log/supervisor/backend.out.log
+environment=NODE_ENV="production",PORT="5001"
+EOF
 
 # Create non-root user for backend (nginx runs as root by default in alpine)
 RUN addgroup -g 1001 -S nodejs && \
