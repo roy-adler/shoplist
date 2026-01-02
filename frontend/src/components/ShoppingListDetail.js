@@ -31,14 +31,21 @@ const ShoppingListDetail = () => {
 
     // Socket.io needs the base server URL, not the API path
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
-    const socketUrl = apiUrl.replace('/api', '') || 'http://localhost:5001';
+    let socketUrl;
+    if (apiUrl.startsWith('/')) {
+      // Relative URL (production) - use current origin
+      socketUrl = window.location.origin;
+    } else {
+      // Absolute URL (development) - remove /api suffix
+      socketUrl = apiUrl.replace('/api', '') || 'http://localhost:5001';
+    }
     const socket = io(socketUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
 
     socket.on('connect', () => {
-      console.log('Socket connected');
+      console.log('Socket connected for shopping list');
       // Join the list room for real-time updates
       socket.emit('join_list', parseInt(id));
     });
@@ -83,6 +90,8 @@ const ShoppingListDetail = () => {
 
     socket.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
+      console.error('Socket URL:', socketUrl);
+      console.error('Token present:', !!token);
     });
 
     return () => {

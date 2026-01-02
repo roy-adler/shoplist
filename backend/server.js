@@ -54,6 +54,7 @@ io.use(async (socket, next) => {
         socket.isAuthenticated = true;
         return next();
       } catch (err) {
+        console.error('JWT verification failed:', err.message);
         // If JWT fails and no shareToken, reject
         if (!shareToken) {
           return next(new Error('Invalid token'));
