@@ -102,7 +102,7 @@ const SharedShoppingListDetail = () => {
   const fetchList = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/shared/shopping-lists/${token}`);
+      const response = await axios.get(`/shared/shopping-lists/${token}`);
       setList(response.data);
       setError('');
     } catch (err) {
@@ -123,7 +123,7 @@ const SharedShoppingListDetail = () => {
       }));
 
       // Update on server (WebSocket will handle the broadcast)
-      await axios.patch(`${API_URL}/shared/shopping-lists/${token}/items/${itemId}`, {
+      await axios.patch(`/shared/shopping-lists/${token}/items/${itemId}`, {
         checked: !checked,
       });
     } catch (err) {
@@ -162,7 +162,7 @@ const SharedShoppingListDetail = () => {
         };
       });
 
-      await axios.post(`${API_URL}/shared/shopping-lists/${token}/items`, {
+      await axios.post(`/shared/shopping-lists/${token}/items`, {
         name: addFormData.name,
         unit: addFormData.unit,
         amount: parseFloat(addFormData.amount)

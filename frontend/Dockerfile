@@ -31,7 +31,7 @@ RUN echo 'server { \
     root /usr/share/nginx/html; \
     index index.html; \
     location /api { \
-        proxy_pass http://backend:5001/api; \
+        proxy_pass http://backend:5001; \
         proxy_http_version 1.1; \
         proxy_set_header Upgrade $http_upgrade; \
         proxy_set_header Connection "upgrade"; \
