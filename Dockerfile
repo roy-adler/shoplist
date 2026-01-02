@@ -49,6 +49,18 @@ server {
     root /app/frontend/build;
     index index.html;
 
+    # Proxy Socket.io connections to backend
+    location /socket.io/ {
+        proxy_pass http://localhost:5001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Proxy API requests to backend running on localhost:5001
     location /api {
         proxy_pass http://localhost:5001;

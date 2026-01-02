@@ -17,7 +17,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: process.env.NODE_ENV === 'production' ? true : (process.env.FRONTEND_URL || "http://localhost:3000"),
     methods: ["GET", "POST"],
     credentials: true
   },
